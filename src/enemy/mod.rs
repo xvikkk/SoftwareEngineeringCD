@@ -1,7 +1,8 @@
 use self::formation::{Formation, FormationMaker};
 use crate::components::{Enemy, FromEnemy, Laser, Movable, SpriteSize, Velocity};
 use crate::{
-    ENEMY_LASER_SIZE, ENEMY_MAX, ENEMY_SIZE, EnemyCount, GameTextures, SPRITE_SCALE, WinSize,
+    BASE_SPEED, ENEMY_LASER_SIZE, ENEMY_MAX, ENEMY_SIZE, EnemyCount, GameTextures, SPRITE_SCALE,
+    WinSize,
 };
 
 use bevy::prelude::*;
@@ -85,11 +86,41 @@ fn enemy_fire_system(
 
 fn enemy_movement_system(
     time: Res<Time>,
+    win_size: Res<WinSize>,
     mut query: Query<(&mut Transform, &mut Formation), With<Enemy>>,
 ) {
     let delta = time.delta_secs();
 
     for (mut transform, mut formation) in &mut query {
+        // 1. 更新编队参数
+        formation.change_timer += delta;
+
+        // 每0.5秒更新一次变化方向
+        if formation.change_timer > 0.5 {
+            let mut rng = thread_rng();
+            formation.pivot_delta = (rng.gen_range(-20.0..20.0), rng.gen_range(-20.0..20.0));
+            formation.radius_delta = (rng.gen_range(-10.0..10.0), rng.gen_range(-10.0..10.0));
+            formation.speed_delta = rng.gen_range(-10.0..10.0);
+            formation.change_timer = 0.0;
+        }
+
+        // 应用参数变化
+        formation.pivot.0 += formation.pivot_delta.0 * delta;
+        formation.pivot.1 += formation.pivot_delta.1 * delta;
+        formation.radius.0 += formation.radius_delta.0 * delta;
+        formation.radius.1 += formation.radius_delta.1 * delta;
+        formation.speed += formation.speed_delta * delta;
+
+        // 限制参数在合理范围内
+        let w_span = win_size.w / 4.;
+        let h_span = win_size.h / 3. - 50.;
+        formation.pivot.0 = formation.pivot.0.clamp(-w_span, w_span);
+        formation.pivot.1 = formation.pivot.1.clamp(0.0, h_span);
+        formation.radius.0 = formation.radius.0.clamp(50.0, 200.0);
+        formation.radius.1 = formation.radius.1.clamp(50.0, 150.0);
+        formation.speed = formation.speed.clamp(BASE_SPEED * 0.5, BASE_SPEED * 1.5);
+
+        // 2. 计算敌人位置
         // current position
         let (x_org, y_org) = (transform.translation.x, transform.translation.y);
 
@@ -130,7 +161,8 @@ fn enemy_movement_system(
             formation.angle = angle;
         }
 
-        let translation = &mut transform.translation;
-        (translation.x, translation.y) = (x, y);
+        // 更新位置
+        transform.translation.x = x;
+        transform.translation.y = y;
     }
 }

@@ -1,5 +1,6 @@
 #![allow(unused)] // silence unused warnings while exploring (to comment out)
 
+use bevy::audio::{AudioPlayer, PlaybackSettings}; // Added for audio playback
 use bevy::math::bounding::IntersectsVolume;
 use bevy::math::{Vec3Swizzles, bounding::Aabb2d};
 use bevy::prelude::*;
@@ -17,7 +18,6 @@ mod enemy;
 mod player;
 
 // region:    --- Asset Constants
-
 const PLAYER_SPRITE: &str = "player_a_01.png";
 const PLAYER_SIZE: (f32, f32) = (144., 75.);
 const PLAYER_LASER_SPRITE: &str = "laser_a_01.png";
@@ -31,18 +31,17 @@ const ENEMY_LASER_SIZE: (f32, f32) = (17., 55.);
 const EXPLOSION_SHEET: &str = "explo_a_sheet.png";
 const EXPLOSION_LEN: usize = 16;
 
-const SPRITE_SCALE: f32 = 0.5;
+const ENEMY_EXPLOSION_SOUND: &str = "enemy_explosion.ogg";
 
+const SPRITE_SCALE: f32 = 0.5;
 // endregion: --- Asset Constants
 
 // region:    --- Game Constants
-
 const BASE_SPEED: f32 = 500.;
 
 const PLAYER_RESPAWN_DELAY: f64 = 2.;
 const ENEMY_MAX: u32 = 2;
 const FORMATION_MEMBERS_MAX: u32 = 2;
-
 // endregion: --- Game Constants
 
 // region:    --- Resources
@@ -60,6 +59,7 @@ struct GameTextures {
     enemy_laser: Handle<Image>,
     explosion_layout: Handle<TextureAtlasLayout>,
     explosion_texture: Handle<Image>,
+    enemy_explosion_sound: Handle<AudioSource>,
 }
 
 #[derive(Resource)]
@@ -89,6 +89,10 @@ impl PlayerState {
         self.last_shot = -1.;
     }
 }
+
+// Event to spawn an explosion
+#[derive(Event)]
+struct EnemyExplosionEvent;
 // endregion: --- Resources
 
 fn main() {
@@ -98,20 +102,20 @@ fn main() {
             primary_window: Some(Window {
                 title: "Rust Invaders!".into(),
                 resolution: (598., 676.).into(),
-                // position window (for tutorial)
-                // position: WindowPosition::At(IVec2::new(2780, 4900)),
                 ..Default::default()
             }),
             ..Default::default()
         }))
         .add_plugins(PlayerPlugin)
         .add_plugins(EnemyPlugin)
+        .add_event::<EnemyExplosionEvent>()
         .add_systems(Startup, setup_system)
         .add_systems(Update, movable_system)
         .add_systems(Update, player_laser_hit_enemy_system)
         .add_systems(Update, enemy_laser_hit_player_system)
         .add_systems(Update, explosion_to_spawn_system)
         .add_systems(Update, explosion_animation_system)
+        .add_systems(Update, enemy_explosion_audio_system)
         .run();
 }
 
@@ -139,6 +143,9 @@ fn setup_system(
     let texture_atlas = TextureAtlasLayout::from_grid(UVec2::new(64, 64), 4, 4, None, None);
     let explosion_layout = texture_atlases.add(texture_atlas);
 
+    // add PlayerState resource
+    let enemy_explosion_sound = asset_server.load(ENEMY_EXPLOSION_SOUND);
+
     // add GameTextures resource
     let game_textures = GameTextures {
         player: asset_server.load(PLAYER_SPRITE),
@@ -147,6 +154,7 @@ fn setup_system(
         enemy_laser: asset_server.load(ENEMY_LASER_SPRITE),
         explosion_layout,
         explosion_texture: texture_handle,
+        enemy_explosion_sound,
     };
     commands.insert_resource(game_textures);
     commands.insert_resource(EnemyCount(0));
@@ -185,6 +193,7 @@ fn player_laser_hit_enemy_system(
     mut enemy_count: ResMut<EnemyCount>,
     laser_query: Query<(Entity, &Transform, &SpriteSize), (With<Laser>, With<FromPlayer>)>,
     enemy_query: Query<(Entity, &Transform, &SpriteSize), With<Enemy>>,
+    mut enemy_explosion_events: EventWriter<EnemyExplosionEvent>,
 ) {
     let mut despawned_entities: HashSet<Entity> = HashSet::new();
 
@@ -229,6 +238,9 @@ fn player_laser_hit_enemy_system(
 
                 // spawn the explosionToSpawn
                 commands.spawn(ExplosionToSpawn(enemy_tf.translation));
+
+                // trigger the enemy explosion event
+                enemy_explosion_events.send(EnemyExplosionEvent);
             }
         }
     }
@@ -318,5 +330,19 @@ fn explosion_animation_system(
                 }
             }
         }
+    }
+}
+
+// Play audio when an enemy explodes
+fn enemy_explosion_audio_system(
+    mut commands: Commands,
+    game_textures: Res<GameTextures>,
+    mut events: EventReader<EnemyExplosionEvent>,
+) {
+    for _ in events.read() {
+        commands.spawn((
+            AudioPlayer::new(game_textures.enemy_explosion_sound.clone()),
+            PlaybackSettings::ONCE,
+        ));
     }
 }

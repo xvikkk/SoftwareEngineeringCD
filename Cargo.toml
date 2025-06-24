@@ -1,14 +1,14 @@
 [package]
-name = "invaders"
-version = "0.3.0"
-edition = "2021"
+name = "BeatPlan"
+version = "0.1.0"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-rand = "0.8.5"
+rand = "0.9.1"
 
 [dependencies.bevy]
-version = "0.15.0"
+version = "0.16.1"
 features = [
     "bevy_asset",
     "bevy_audio",
@@ -19,6 +19,8 @@ features = [
     "bevy_ui",
     "multi_threaded",
     "png",
+    "vorbis",
+    "mp3",
     "vorbis",
     "x11",
     "file_watcher",
