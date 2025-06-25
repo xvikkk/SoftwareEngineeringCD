@@ -3,9 +3,18 @@ use crate::{
     GameTextures, PLAYER_LASER_SIZE, PLAYER_RESPAWN_DELAY, PLAYER_SIZE, PlayerState, SPRITE_SCALE,
     WinSize,
 };
+
+// 玩家移动速度常量
+pub const PLAYER_SPEED: f32 = 1.0;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use std::time::Duration;
+
+/// 无敌状态组件
+#[derive(Component)]
+pub struct Invincible {
+    pub timer: Timer,
+}
 
 /// 玩家系统插件 - 管理玩家的生成、移动和射击逻辑
 pub struct PlayerPlugin;
@@ -21,8 +30,61 @@ impl Plugin for PlayerPlugin {
             )
             // 处理玩家键盘输入事件
             .add_systems(Update, player_keyboard_event_system)
+            // 处理玩家移动和边界检查
+            .add_systems(
+                Update,
+                player_movement_system.after(player_keyboard_event_system),
+            )
             // 处理玩家射击逻辑
-            .add_systems(Update, player_fire_system);
+            .add_systems(Update, player_fire_system)
+            // 新增无敌状态计时器系统
+            .add_systems(Update, invincible_timer_system);
+    }
+}
+
+/// 无敌状态计时器系统
+fn invincible_timer_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut query: Query<(Entity, &mut Invincible)>,
+) {
+    for (entity, mut invincible) in query.iter_mut() {
+        invincible.timer.tick(time.delta());
+        if invincible.timer.finished() {
+            commands.entity(entity).remove::<Invincible>();
+        }
+    }
+}
+
+/// 玩家移动系统 - 控制玩家的移动逻辑
+fn player_movement_system(
+    time: Res<Time>,
+    win_size: Res<WinSize>,
+    mut query: Query<(&Velocity, &SpriteSize, &mut Transform), With<Player>>,
+) {
+    if let Ok((velocity, sprite_size, mut transform)) = query.get_single_mut() {
+        // 计算玩家实际尺寸（缩放后）
+        let scaled_width = sprite_size.0.x * SPRITE_SCALE;
+        let scaled_height = sprite_size.0.y * SPRITE_SCALE;
+
+        // 计算边界（玩家不能超出边界）
+        let min_x = -win_size.w / 2. + scaled_width / 2.;
+        let max_x = win_size.w / 2. - scaled_width / 2.;
+        let min_y = -win_size.h / 2. + scaled_height / 2.;
+        let max_y = win_size.h / 2. - scaled_height / 2.;
+
+        // 根据速度和时间步长更新位置
+        let delta = time.delta().as_secs_f32();
+        let mut new_x = transform.translation.x + velocity.x * delta;
+        let mut new_y = transform.translation.y + velocity.y * delta;
+
+        // 限制在边界内
+        new_x = new_x.clamp(min_x, max_x);
+        new_y = new_y.clamp(min_y, max_y);
+
+        // 更新位置
+        transform.translation.x = new_x;
+        transform.translation.y = new_y;
     }
 }
 
@@ -61,7 +123,10 @@ fn player_spawn_system(
             .insert(Movable {
                 auto_despawn: false,
             }) // 玩家不会自动销毁
-            .insert(Velocity { x: 0., y: 0. }); // 初始速度为0
+            .insert(Velocity { x: 0., y: 0. }) // 初始速度为0
+            .insert(Invincible {
+                timer: Timer::from_seconds(2.0, TimerMode::Once), // 2秒无敌状态
+            }); // 添加无敌组件
 
         player_state.spawned(); // 标记玩家已重生
     }
@@ -116,13 +181,32 @@ fn player_keyboard_event_system(
 ) {
     // 获取玩家速度组件（假设游戏中只有一个玩家）
     if let Ok(mut velocity) = query.get_single_mut() {
-        // 根据方向键设置水平速度
-        velocity.x = if kb.pressed(KeyCode::ArrowLeft) {
-            -1. // 左方向键：向左移动
-        } else if kb.pressed(KeyCode::ArrowRight) {
-            1. // 右方向键：向右移动
-        } else {
-            0. // 无方向键：停止移动
+        // 初始化速度向量
+        let mut input_velocity = Vec2::new(0., 0.);
+
+        // 处理水平输入
+        if kb.pressed(KeyCode::ArrowLeft) {
+            input_velocity.x -= 1.0;
         }
+        if kb.pressed(KeyCode::ArrowRight) {
+            input_velocity.x += 1.0;
+        }
+
+        // 处理垂直输入
+        if kb.pressed(KeyCode::ArrowUp) {
+            input_velocity.y += 1.0;
+        }
+        if kb.pressed(KeyCode::ArrowDown) {
+            input_velocity.y -= 1.0;
+        }
+
+        // 归一化速度向量以确保对角线移动速度一致
+        if input_velocity.length_squared() > 0.0 {
+            input_velocity = input_velocity.normalize() * PLAYER_SPEED;
+        }
+
+        // 更新速度组件
+        velocity.x = input_velocity.x;
+        velocity.y = input_velocity.y;
     }
 }

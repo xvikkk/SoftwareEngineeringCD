@@ -10,6 +10,7 @@ use components::{
     Player, SpriteSize, Velocity,
 };
 use enemy::EnemyPlugin;
+use player::Invincible;
 use player::PlayerPlugin;
 use std::collections::HashSet;
 
@@ -263,10 +264,15 @@ fn enemy_laser_hit_player_system(
     mut player_state: ResMut<PlayerState>,
     time: Res<Time>,
     laser_query: Query<(Entity, &Transform, &SpriteSize), (With<Laser>, With<FromEnemy>)>,
-    player_query: Query<(Entity, &Transform, &SpriteSize), With<Player>>,
+    player_query: Query<(Entity, &Transform, &SpriteSize, Option<&Invincible>), With<Player>>,
 ) {
     // 获取玩家实体（游戏中应该只有一个玩家）
-    if let Ok((player_entity, player_tf, player_size)) = player_query.get_single() {
+    if let Ok((player_entity, player_tf, player_size, invincible)) = player_query.get_single() {
+        // 如果玩家处于无敌状态，跳过碰撞处理
+        if invincible.is_some() {
+            return;
+        }
+
         let player_scale = player_tf.scale.xy(); // 获取玩家缩放比例
 
         // 遍历所有敌人激光
